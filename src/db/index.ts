@@ -1,21 +1,37 @@
+import fs from 'fs';
+import path from 'path';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
-import * as schema from './schema';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { mkdirSync, existsSync } from 'fs';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const dbPath = join(__dirname, '..', '..', 'data', 'bmt2.db');
+const dbPath = path.resolve(process.cwd(), 'data', 'bmt2.db');
 
-const dataDir = join(__dirname, '..', '..', 'data');
-if (!existsSync(dataDir)) {
-  mkdirSync(dataDir, { recursive: true });
+// Assicura che la cartella esista
+fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+
+// Crea il file se non esiste (evita errori di "short read" su aprimenti)
+if (!fs.existsSync(dbPath)) {
+    const fd = fs.openSync(dbPath, 'a');
+    fs.closeSync(fd);
+    // opzionale: impostare permessi
+    // fs.chmodSync(dbPath, 0o644);
 }
 
-const sqlite = new Database(dbPath);
-sqlite.pragma('journal_mode = WAL');
-sqlite.pragma('foreign_keys = ON');
+let sqlite: Database.Database;
+try {
+    sqlite = new Database(dbPath, { fileMustExist: false });
+    // esempio di pragma protetto da error handling
+    try {
+        sqlite.pragma('journal_mode = WAL');
+    } catch (err) {
+        console.error('Impossibile applicare PRAGMA:', (err as Error).message);
+    }
+} catch (err) {
+    console.error('Errore aprendo il DB:', (err as Error).message);
+    throw err;
+}
 
-export const db = drizzle(sqlite, { schema });
-export { sqlite };
+// Crea istanza drizzle (ORM) a partire dalla connessione better-sqlite3
+const db = drizzle(sqlite);
+
+// Esporta named export `db` (drizzle) e `sqlite` (raw better-sqlite3) per compatibilità
+export { db, sqlite };

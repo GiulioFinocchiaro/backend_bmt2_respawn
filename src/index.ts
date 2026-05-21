@@ -1,26 +1,21 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
-import { sqlite } from './db';
+import type { Server } from 'node:http';
+import { swaggerUI } from '@hono/swagger-ui';
+import { db } from './db';
 import timersRouter from './routes/timers';
+import authRouter from './routes/auth';
+import adminRouter from './routes/admin';
+import { spec } from './openapi';
+import { initWebSocket } from './ws';
+import { sql } from 'drizzle-orm';
 
-sqlite.exec(`
-  CREATE TABLE IF NOT EXISTS timers (
-    id TEXT PRIMARY KEY,
-    nome_boss TEXT NOT NULL,
-    categoria TEXT DEFAULT 'Metin',
-    tempo_respawn INTEGER NOT NULL,
-    spawn_precedente TEXT,
-    ultimo_spawn TEXT,
-    spawn_oggi INTEGER DEFAULT 0,
-    stato TEXT DEFAULT 'fermo',
-    note TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now'))
-  )
-`);
+// Solo seed config, le tabelle le gestisce Drizzle via migrate
+db.run(sql`INSERT OR IGNORE INTO config (key, value) VALUES ('data_riavvio', '2026-04-14T23:20:00.000Z')`);
 
 const app = new Hono();
+// ... resto invariato
 
 app.use('/*', cors({
   origin: '*',
@@ -29,13 +24,22 @@ app.use('/*', cors({
 }));
 
 app.get('/', (c) => c.json({ name: 'BMT2 Timer API', version: '1.0.0' }));
+
+app.get('/openapi.json', (c) => c.json(spec));
+
+app.get('/docs', swaggerUI({ url: '/openapi.json' }));
+
+app.route('/api/auth', authRouter);
 app.route('/api/timers', timersRouter);
+app.route('/api/admin', adminRouter);
 
 const port = parseInt(process.env.PORT || '3001');
 
-serve({
+const server = serve({
   fetch: app.fetch,
   port,
 }, (info) => {
   console.log(`🚀 BMT2 Timer API running on http://localhost:${port}`);
-});
+}) as unknown as Server;
+
+initWebSocket(server);
